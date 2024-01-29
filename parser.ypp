@@ -1,0 +1,179 @@
+%{
+    #include <cstdio>
+    #include <cstdlib>
+
+    #include "ast.hpp"
+    #include "primitive.hpp"
+    #include "symtab.hpp"
+
+    #define YYDEBUG 1
+
+    extern Program_ptr ast;
+    int yylex(void);
+    void yyerror(const char *);
+%}
+
+/* Enables verbose error messages */
+%error-verbose
+
+/** WRITE ME:
+ *  - Put all your token definitions here
+ *  - Put all your type definitions here
+ *  - Put all your precedence/associativity rules here
+ */
+
+%token N
+%token COLON SEMI APOS QUOTE OPENPAREN CLOSEPAREN OPENCURLY CLOSECURLY OPENBRACKET CLOSEBRACKET BAR
+%token KEY_INTPTR KEY_CHARPTR
+%token KEY_IF KEY_ELSE KEY_WHILE KEY_BOOL KEY_PROC KEY_VAR KEY_RETURN KEY_CHARARRAY KEY_INTEGER KEY_CHAR 
+%token DECIMAL IDENT TRUE FALSE
+
+%left COMMA
+%right ASSIGN
+%left OP_OR
+%left OP_AND
+%left OP_EQ OP_NE
+%left OP_GREATER OP_GREATEREQ OP_LESS OP_LESSEQ 
+%left PLUS MINUS
+%left TIMES DIVIDE
+%right OP_NOT ADDRESS OP_XOR 
+
+%%
+
+program     : procedures {ast = new ProgramImpl($1.u_proc_list);} 
+            ;
+
+procedures  : procedure procedures {$$ = $2; $2.u_proc_list -> push_front($1.u_proc);}
+            | {$$.u_proc_list = new std::list<Proc_ptr>();}
+            ;
+
+procedure   : KEY_PROC IDENT OPENPAREN param CLOSEPAREN KEY_RETURN type OPENCURLY body CLOSECURLY {$$.u_proc = new ProcImpl(new SymName($2.u_base_charptr), $4.u_decl_list, $7.u_type, $9.u_procedure_block);}
+            ;
+
+param       : param_ param {$$ = $2; $2.u_decl_list -> push_front($1.u_decl);}
+            | {$$.u_decl_list = new std::list<Decl_ptr>();}
+            ;
+
+param_      : proc_params COLON type {$$.u_decl = new DeclImpl($1.u_symname_list, $3.u_type);} 
+            | SEMI proc_params COLON type {$$.u_decl = new DeclImpl($2.u_symname_list, $4.u_type);} 
+            ;
+
+proc_params : IDENT COMMA proc_params {$$ = $3; $3.u_symname_list->push_front(new SymName($1.u_base_charptr));}
+            | IDENT {$$.u_symname_list = new std::list<SymName_ptr>(); $$.u_symname_list -> push_front(new SymName($1.u_base_charptr));}
+            ;           
+
+body        : proc_decls var_decls stmts ret_stmt {$$.u_procedure_block = new Procedure_blockImpl($1.u_proc_list, $2.u_decl_list, $3.u_stat_list, $4.u_return_stat);}
+            ;
+
+var_decls   : var_decl var_decls {$$ = $2; $2.u_decl_list -> push_front($1.u_decl);}
+            | {$$.u_decl_list = new std::list<Decl_ptr>();}
+            ;
+
+var_decl    : KEY_VAR var_list COLON var_type SEMI {$$.u_decl = new DeclImpl($2.u_symname_list, $4.u_type);}
+            ;
+
+var_list    : IDENT COMMA var_list {$$ = $3; $3.u_symname_list -> push_front(new SymName($1.u_base_charptr));}
+            | IDENT {$$.u_symname_list = new std::list<SymName_ptr>(); $$.u_symname_list -> push_front(new SymName($1.u_base_charptr));}
+            ;
+
+type        : KEY_BOOL {$$.u_type = new TBoolean();}
+            | KEY_INTEGER {$$.u_type = new TInteger();}
+            | KEY_CHAR {$$.u_type = new TCharacter();}
+            | KEY_INTPTR {$$.u_type = new TIntPtr();}
+            | KEY_CHARPTR {$$.u_type = new TCharPtr();}
+            ;
+
+var_type    : KEY_BOOL {$$.u_type = new TBoolean();}
+            | KEY_INTEGER {$$.u_type = new TInteger();}
+            | KEY_CHARARRAY OPENBRACKET DECIMAL CLOSEBRACKET {$$.u_type = new TString(new Primitive($3.u_base_int));}
+            | KEY_CHAR {$$.u_type = new TCharacter();}
+            | KEY_INTPTR {$$.u_type = new TIntPtr();}
+            | KEY_CHARPTR {$$.u_type = new TCharPtr();}
+            ;
+
+proc_decls  : procedure proc_decls {$$ = $2; $2.u_proc_list -> push_front($1.u_proc);}
+            | {$$.u_proc_list = new std::list<Proc_ptr>();}
+            ;
+
+code_block  : OPENCURLY var_decls stmts CLOSECURLY {$$.u_nested_block = new Nested_blockImpl($2.u_decl_list, $3.u_stat_list);}
+            ;    
+
+nested_block: var_decls stmts {$$.u_nested_block = new Nested_blockImpl($1.u_decl_list, $2.u_stat_list);}
+            ;
+
+stmts       : stmt stmts {$$ = $2; $2.u_stat_list -> push_front($1.u_stat);}
+            | {$$.u_stat_list = new std::list<Stat_ptr>();}
+            ;
+
+stmt        : assignment {$$ = $1;}
+            | proc_call {$$ = $1;}
+            | code_block {$$.u_stat = new CodeBlock($1.u_nested_block);}
+            | KEY_IF OPENPAREN expr CLOSEPAREN OPENCURLY nested_block CLOSECURLY {$$.u_stat = new IfNoElse($3.u_expr, $6.u_nested_block);}
+            | KEY_IF OPENPAREN expr CLOSEPAREN OPENCURLY nested_block CLOSECURLY KEY_ELSE OPENCURLY nested_block CLOSECURLY {$$.u_stat = new IfWithElse($3.u_expr, $6.u_nested_block, $10.u_nested_block);}
+            | KEY_WHILE OPENPAREN expr CLOSEPAREN OPENCURLY nested_block CLOSECURLY {$$.u_stat = new WhileLoop($3.u_expr, $6.u_nested_block);}
+            ;
+
+ret_stmt    : KEY_RETURN expr SEMI {$$.u_return_stat = new Return($2.u_expr);}
+            ;
+
+assignment  : lhs ASSIGN QUOTE SEMI {$$.u_stat = new StringAssignment($1.u_lhs, new StringPrimitive($3.u_base_charptr));}
+            | lhs ASSIGN expr SEMI {$$.u_stat = new Assignment($1.u_lhs, $3.u_expr);}
+            ;
+
+lhs         : IDENT {$$.u_lhs = new Variable(new SymName($1.u_base_charptr));}
+            | IDENT OPENBRACKET expr CLOSEBRACKET {$$.u_lhs = new ArrayElement(new SymName($1.u_base_charptr), $3.u_expr);}
+            | OP_XOR IDENT {$$.u_lhs = new DerefVariable(new SymName($2.u_base_charptr));}
+            ;
+
+proc_call   : lhs ASSIGN IDENT OPENPAREN expr_list CLOSEPAREN SEMI {$$.u_stat = new Call($1.u_lhs, new SymName($3.u_base_charptr), $5.u_expr_list);}
+            ;
+
+expr_list   : expr expr_list_ {$$ = $2; $2.u_expr_list -> push_front($1.u_expr);}
+	        | {$$.u_expr_list = new std::list<Expr_ptr>();}
+	        ;
+
+expr_list_  : COMMA expr expr_list_	{$$ = $3; $3.u_expr_list -> push_front($2.u_expr);}
+	        | {$$.u_expr_list = new std::list<Expr_ptr>();}
+	        ;
+
+expr        : expr PLUS expr {$$.u_expr = new Plus($1.u_expr, $3.u_expr);}
+            | expr MINUS expr {$$.u_expr = new Minus($1.u_expr, $3.u_expr);}
+            | expr TIMES expr {$$.u_expr = new Times($1.u_expr, $3.u_expr);}
+            | expr DIVIDE expr {$$.u_expr = new Div($1.u_expr, $3.u_expr);}
+            | expr OP_AND expr {$$.u_expr = new And($1.u_expr, $3.u_expr);}
+            | expr OP_OR expr {$$.u_expr = new Or($1.u_expr, $3.u_expr);}
+            | expr OP_NE expr {$$.u_expr = new Noteq($1.u_expr, $3.u_expr);}
+            | expr OP_EQ expr {$$.u_expr = new Compare($1.u_expr, $3.u_expr);}
+            | expr OP_GREATER expr {$$.u_expr = new Gt($1.u_expr, $3.u_expr);}
+            | expr OP_GREATEREQ expr {$$.u_expr = new Gteq($1.u_expr, $3.u_expr);}
+            | expr OP_LESS expr {$$.u_expr = new Lt($1.u_expr, $3.u_expr);}
+            | expr OP_LESSEQ expr {$$.u_expr = new Lteq($1.u_expr, $3.u_expr);}
+            | ADDRESS IDENT OPENBRACKET expr CLOSEBRACKET {$$.u_expr = new AddressOf(new ArrayElement(new SymName($2.u_base_charptr), $4.u_expr));}
+            | ADDRESS IDENT {$$.u_expr = new AddressOf(new Variable(new SymName($2.u_base_charptr)));}
+            | OP_XOR expr {$$.u_expr = new Deref($2.u_expr);} 
+            | OP_NOT expr {$$.u_expr = new Not($2.u_expr);}
+            | MINUS expr {$$.u_expr = new Uminus($2.u_expr);} %prec OP_NOT
+            | N {$$.u_expr = new IntLit(new Primitive(0));}
+            | APOS {$$.u_expr = new CharLit(new Primitive($1.u_base_charptr[0]));}
+            | TRUE {$$.u_expr = new BoolLit(new Primitive(1));}
+            | FALSE {$$.u_expr = new BoolLit(new Primitive(0));}
+            | IDENT {$$.u_expr = new Ident(new SymName($1.u_base_charptr));} 
+            | DECIMAL {$$.u_expr = new IntLit(new Primitive($1.u_base_int));}
+            | IDENT OPENBRACKET expr CLOSEBRACKET {$$.u_expr = new ArrayAccess(new SymName($1.u_base_charptr), $3.u_expr);}
+            | OPENPAREN expr CLOSEPAREN {$$ = $2;}
+            | BAR expr BAR {$$.u_expr = new AbsoluteValue($2.u_expr);}
+            ;
+
+%%
+
+/** You shall not pass!
+ *  You should not  have to do or edit anything past this.
+ */
+
+extern int yylineno;
+
+void yyerror(const char *s)
+{
+    fprintf(stderr, "%s at line %d\n", s, yylineno);
+    return;
+}
