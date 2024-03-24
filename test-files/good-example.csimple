@@ -1,0 +1,11 @@
+/% this is from the documentation: https://sites.cs.ucsb.edu/~chris/teaching/cs160/projects/language.html#description-of-program-structure %/
+procedure main() return integer {
+    procedure foo() return integer {
+        return 0;
+        }
+    procedure foooop() return integer {
+        return 0;
+    }
+    return 0;
+}
+

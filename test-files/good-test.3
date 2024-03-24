@@ -1,0 +1,16 @@
+procedure Main() return integer
+{
+    var x : charptr;    /% x is a pointer to a character variable %/
+    var x, z : integer;
+    var y    : intptr;
+    
+    x = "asdasd";
+    y = &x;     /% We take the address of x and assign it to y.
+                   As a result, y points to x, which is 5. %/
+    x = 6;      /% y still points to x, which is 6 now %/
+    z = ^y;     /% Dereference y, and assign to z the value that y points to (which is 6). %/
+    y = null;   /% y is now the NULL pointer %/
+
+    z = ^y; 
+    return 0; 
+}
